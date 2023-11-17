@@ -346,7 +346,8 @@ int main(void)
             {
               printf("%d: sendto error. %ld\r\n",u_sn,ret);
             }
-            sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
+            else
+              sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
         }
       }
       send_flag = 0;
