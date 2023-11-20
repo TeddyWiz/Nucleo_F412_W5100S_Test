@@ -161,20 +161,34 @@ uint8_t spiReadByte(void)
 }
 static void wizchip_read_burst(uint8_t *pBuf, uint16_t len)
 {
+#if 1
 	HAL_SPI_Receive_DMA(&hspi1, pBuf, len);
   while (HAL_DMA_GetState(hspi1.hdmarx) == HAL_DMA_STATE_BUSY);
   while (HAL_SPI_GetState(&hspi1) == HAL_SPI_STATE_BUSY_RX);
+#else
+  uint8_t tx[SEND_SIZE] = {0,};
+    while (HAL_SPI_GetState(&hspi1) != HAL_SPI_STATE_READY);
+  	HAL_SPI_TransmitReceive(&hspi1, &tx, pBuf, len, 2);
+    while (HAL_SPI_GetState(&hspi1) == HAL_SPI_STATE_BUSY_RX);
+#endif
   
-	return;
+	//return;
 }
 
 static void wizchip_write_burst(uint8_t *pBuf, uint16_t len)
 {
+#if 1
   HAL_SPI_Transmit_DMA(&hspi1, pBuf, len);
   while (HAL_DMA_GetState(hspi1.hdmatx) == HAL_DMA_STATE_BUSY);
   while (HAL_SPI_GetState(&hspi1) == HAL_SPI_STATE_BUSY_TX);
+#else
+  uint8_t rx[SEND_SIZE] = {0,};
+    while (HAL_SPI_GetState(&hspi1) != HAL_SPI_STATE_READY);
+  	HAL_SPI_TransmitReceive(&hspi1, pBuf, &rx, len, 2);
+    while (HAL_SPI_GetState(&hspi1) == HAL_SPI_STATE_BUSY_RX);
+#endif
   
-	return;
+	//return;
 }
 void print_network_information()
 {
@@ -260,12 +274,13 @@ int main(void)
   int32_t ret = 0;
   uint16_t port = 5001;
   uint8_t send_data[SEND_SIZE]={0,};
+  uint8_t recv_data[SEND_SIZE] = {0,};
   uint16_t cnt = 0;
-  unsigned char destip[4] = {192,168,15,3};
+  unsigned char destip[4] = {192,168,15,7};
   uint16_t destport = 6000;
   uint8_t repeat_cnt = 3;
   uint32_t time1 = 0, time2 = 0;
-  uint16_t send_size_1 = 0;
+  uint16_t send_size_1 = 0, recv_size = 0;
   uint16_t max_buf_size = 0, sentsize = 0, temp_send_size = 0;
   /* USER CODE END 1 */
 
@@ -302,6 +317,8 @@ int main(void)
     printf("socket open Error 0x%02x\r\n", ret);
   send_data[0] ='z';
   send_data[1] ='0';
+  printf("socket open port : %d \r\n", port);
+  printf("Dest IP : %d.%d.%d.%d Port : %d\r\n", destip[0], destip[1], destip[2], destip[3], destport);
   for(cnt = 2; cnt < SEND_SIZE; cnt ++)
   {
     send_data[cnt] = 0x41 + (cnt % 25);
@@ -322,7 +339,30 @@ int main(void)
       CLI_Process();
       rx_flag = 0;
     }
-    
+    if((recv_size = getSn_RX_RSR(u_sn)) > 0)
+    {
+      if(recv_size > SEND_SIZE) recv_size = SEND_SIZE;
+      ret = recvfrom(u_sn, recv_data, recv_size, destip, (uint16_t*)&destport);
+      if(ret <= 0)
+      {
+        printf("%d: recvfrom error. %ld\r\n",u_sn,ret);
+        return ret;
+      }
+      //printf("recv size: %d , Dest IP : %d.%d.%d.%d Port : %d\r\n",recv_size , destip[0], destip[1], destip[2], destip[3], destport);
+      recv_size = (uint16_t) ret;
+      sentsize = 0;
+      while(sentsize != recv_size)
+      {
+        ret = sendto(u_sn, recv_data+sentsize, recv_size-sentsize, destip, destport);
+        if(ret < 0)
+        {
+          printf("%d: sendto error. %ld\r\n",u_sn,ret);
+          return ret;
+        }
+        sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
+      }
+      
+    }
     if(send_flag == 1)
     {
       time1 = get_time();
@@ -385,7 +425,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 8;
-  RCC_OscInitStruct.PLL.PLLN = 80;
+  RCC_OscInitStruct.PLL.PLLN = 60;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 8;
   RCC_OscInitStruct.PLL.PLLR = 2;
@@ -403,7 +443,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
   {
     Error_Handler();
   }
