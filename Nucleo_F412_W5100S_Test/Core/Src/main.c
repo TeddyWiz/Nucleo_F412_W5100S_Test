@@ -71,6 +71,7 @@ static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
 uint8_t rxData;
 uint8_t send_flag = 0;
+uint8_t ETH_INT_Flag = 0;
 
 uint8_t rx_buffer[2048]= {0,};
 int rx_index = 0;
@@ -132,6 +133,13 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
      HAL_UART_Transmit(&huart3, &rxData, 1, 1000);
 }
 
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	if(GPIO_Pin == GPIO_PIN_15)
+	{
+		ETH_INT_Flag = 1;
+	}
+}
 void csEnable(void)
 {
 	HAL_GPIO_WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, GPIO_PIN_RESET);
@@ -270,14 +278,15 @@ uint16_t CLI_Process(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-  uint8_t u_sn = 0;
+  uint8_t u_sn = 0, t_sn = 1;
   int32_t ret = 0;
+  uint8_t temp_ret1 = 0, temp_ret2 = 0;
   uint16_t port = 5001;
   uint8_t send_data[SEND_SIZE]={0,};
   uint8_t recv_data[SEND_SIZE] = {0,};
   uint16_t cnt = 0;
   unsigned char destip[4] = {192,168,15,7};
-  uint16_t destport = 6000;
+  uint16_t destport = 6000, t_d_port = 6001;
   uint8_t repeat_cnt = 3;
   uint32_t time1 = 0, time2 = 0;
   uint16_t send_size_1 = 0, recv_size = 0;
@@ -313,6 +322,24 @@ int main(void)
   wizchip_setnetinfo(&defaultNetInfo);
   //Display_Net_Conf();
   print_network_information();
+
+  temp_ret1 = getIR();
+  temp_ret2 = getIMR();
+  printf("1. IR Reg %02x IMR Reg %02x\r\n", temp_ret1, temp_ret2);
+  setIMR(0x01); //socket 0 enable
+  temp_ret1 = getIR();
+  temp_ret2 = getIMR();
+  printf("2. IR Reg %02x IMR Reg %02x\r\n", temp_ret1, temp_ret2);
+  temp_ret1 = getSn_IR(u_sn);
+  temp_ret2 = getSn_IMR(u_sn);
+  printf("1. sn : %d IR Reg %02x IMR Reg %02x\r\n",u_sn, temp_ret1, temp_ret2);
+  
+  setSn_IMR(u_sn, 0x04); //->RECV INT,  SENDOK|TIMEOUT|RECV|DISCON|CON|
+  setSn_IR(u_sn, 0x04);
+  temp_ret1 = getSn_IR(u_sn);
+  temp_ret2 = getSn_IMR(u_sn);
+  printf("2. sn : %d IR Reg %02x IMR Reg %02x\r\n",u_sn, temp_ret1, temp_ret2);
+  
   if((ret = socket(u_sn, Sn_MR_UDP, port, 0x00)) != u_sn)
     printf("socket open Error 0x%02x\r\n", ret);
   send_data[0] ='z';
@@ -339,6 +366,44 @@ int main(void)
       CLI_Process();
       rx_flag = 0;
     }
+    if(ETH_INT_Flag == 1)
+    {
+      ETH_INT_Flag = 0;
+      temp_ret1 = getSn_IR(u_sn);
+      printf("1 sn: %d snIR:%02x \r\n", u_sn, temp_ret1);
+
+      setSn_IR(u_sn, temp_ret1);
+      temp_ret1 = getSn_IR(u_sn);
+      printf("2 sn: %d snIR:%02x \r\n", u_sn, temp_ret1);
+      if((recv_size = getSn_RX_RSR(u_sn)) > 0)
+      {
+        if(recv_size > SEND_SIZE) recv_size = SEND_SIZE;
+        ret = recvfrom(u_sn, recv_data, recv_size, destip, (uint16_t*)&destport);
+        if(ret <= 0)
+        {
+          printf("%d: recvfrom error. %ld\r\n",u_sn,ret);
+          return ret;
+        }
+        recv_data[recv_size] = 0;
+        printf("recv[%d]:%s\r\n",recv_size, recv_data);
+        //printf("recv size: %d , Dest IP : %d.%d.%d.%d Port : %d\r\n",recv_size , destip[0], destip[1], destip[2], destip[3], destport);
+
+        recv_size = (uint16_t) ret;
+        sentsize = 0;
+        while(sentsize != recv_size)
+        {
+          ret = sendto(u_sn, recv_data+sentsize, recv_size-sentsize, destip, destport);
+          if(ret < 0)
+          {
+            printf("%d: sendto error. %ld\r\n",u_sn,ret);
+            return ret;
+          }
+          sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
+        }
+        
+      }
+    }
+    #if 0
     if((recv_size = getSn_RX_RSR(u_sn)) > 0)
     {
       if(recv_size > SEND_SIZE) recv_size = SEND_SIZE;
@@ -363,6 +428,11 @@ int main(void)
       }
       
     }
+
+    ret = loopback_tcpc(t_sn, recv_data, destip, t_d_port);
+    if(ret != 0)
+      printf("TCP Clent Loop back : %ld\r\n", (uint16_t)ret);
+#endif
     if(send_flag == 1)
     {
       time1 = get_time();
@@ -567,12 +637,6 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(USB_PowerSwitchOn_GPIO_Port, USB_PowerSwitchOn_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : USER_Btn_Pin */
-  GPIO_InitStruct.Pin = USER_Btn_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(USER_Btn_GPIO_Port, &GPIO_InitStruct);
-
   /*Configure GPIO pins : LD1_Pin LD3_Pin LD2_Pin */
   GPIO_InitStruct.Pin = LD1_Pin|LD3_Pin|LD2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -586,6 +650,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(SPI1_CS_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PD15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /*Configure GPIO pin : USB_PowerSwitchOn_Pin */
   GPIO_InitStruct.Pin = USB_PowerSwitchOn_Pin;
@@ -607,6 +677,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   GPIO_InitStruct.Alternate = GPIO_AF10_OTG_FS;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
