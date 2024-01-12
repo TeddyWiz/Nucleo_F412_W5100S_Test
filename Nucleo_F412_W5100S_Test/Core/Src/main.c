@@ -52,9 +52,11 @@ UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
 wiz_NetInfo defaultNetInfo = { .mac = {0x00,0x08,0xdc,0xff,0xee,0xdd},
-							.ip = {192,168,15,111},
+							//.ip = {192,168,15,111},
+							.ip = {192,168,11,111},
 							.sn = {255,255,255,0},
-							.gw = {192,168,15,1},
+							//.gw = {192,168,15,1},
+							.gw = {192,168,11,1},
 							.dns = {168, 126, 63, 1},
 							.dhcp = NETINFO_STATIC};
 
@@ -291,6 +293,10 @@ int main(void)
   uint32_t time1 = 0, time2 = 0;
   uint16_t send_size_1 = 0, recv_size = 0;
   uint16_t max_buf_size = 0, sentsize = 0, temp_send_size = 0;
+  uint8_t d_mac[6]={0,};
+  uint8_t null_mac[6]={0xff,};
+  uint8_t set_mac[6] ={1, 2,3,4,5,6};
+  uint8_t ret_8 = 0, set_d = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -339,7 +345,12 @@ int main(void)
   temp_ret1 = getSn_IR(u_sn);
   temp_ret2 = getSn_IMR(u_sn);
   printf("2. sn : %d IR Reg %02x IMR Reg %02x\r\n",u_sn, temp_ret1, temp_ret2);
-  
+#if 0
+  setSn_DHAR(u_sn, set_mac);
+  getSn_DHAR(u_sn, d_mac);
+  printf("1. get D MAC : %02x:%02x:%02x:%02x:%02x:%02x \r\n", d_mac[0], d_mac[1], d_mac[2], d_mac[3], d_mac[4], d_mac[5]);
+#endif
+
   if((ret = socket(u_sn, Sn_MR_UDP, port, 0x00)) != u_sn)
     printf("socket open Error 0x%02x\r\n", ret);
   send_data[0] ='z';
@@ -355,6 +366,12 @@ int main(void)
   max_buf_size = getSn_TxMAX(u_sn);
   send_size_1 = max_buf_size - (max_buf_size % 1472);
   printf("1 send buf size = %d\r\n", send_size_1);
+#if 0
+  setSn_DHAR(u_sn, set_mac);
+    getSn_DHAR(u_sn, d_mac);
+    printf("2. get D MAC : %02x:%02x:%02x:%02x:%02x:%02x \r\n", d_mac[0], d_mac[1], d_mac[2], d_mac[3], d_mac[4], d_mac[5]);
+#endif
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -366,15 +383,18 @@ int main(void)
       CLI_Process();
       rx_flag = 0;
     }
-    if(ETH_INT_Flag == 1)
+    //if(ETH_INT_Flag == 1)
     {
+
       ETH_INT_Flag = 0;
+#if 0
       temp_ret1 = getSn_IR(u_sn);
       printf("1 sn: %d snIR:%02x \r\n", u_sn, temp_ret1);
 
       setSn_IR(u_sn, temp_ret1);
       temp_ret1 = getSn_IR(u_sn);
       printf("2 sn: %d snIR:%02x \r\n", u_sn, temp_ret1);
+#endif
       if((recv_size = getSn_RX_RSR(u_sn)) > 0)
       {
         if(recv_size > SEND_SIZE) recv_size = SEND_SIZE;
@@ -384,6 +404,26 @@ int main(void)
           printf("%d: recvfrom error. %ld\r\n",u_sn,ret);
           return ret;
         }
+        printf("getSLRTR() = %08x\r\n", getSLRTR());
+        printf("getSLRCR() = %04x\r\n", getSLRCR());
+        ret_8 = getSLIMR();
+        printf("get SLIMR = %04x\r\n set 0x02 \r\n", ret_8);
+        setSLIMR(0x06);
+        setSLPIPR(destip);
+        setSLCR(0x02);
+        printf("send arp SLCR = 0x02 \r\n", ret_8);
+        while(getSLCR() != 0x00);
+
+        ret_8 = getSLIR();
+        printf("getSLIR() = %04x\r\n", ret_8);
+        getSLPHAR(d_mac);
+        printf("recv arp D MAC : %02x:%02x:%02x:%02x:%02x:%02x \r\n", d_mac[0], d_mac[1], d_mac[2], d_mac[3], d_mac[4], d_mac[5]);
+        setSn_DHAR(u_sn, d_mac);
+        setSLIR(0x00);
+        setSLIMR(0x00);
+        //getSLPHAR(slphar)
+        getSn_DHAR(u_sn, d_mac);
+        printf("recv 1 get D MAC : %02x:%02x:%02x:%02x:%02x:%02x \r\n", d_mac[0], d_mac[1], d_mac[2], d_mac[3], d_mac[4], d_mac[5]);
         recv_data[recv_size] = 0;
         printf("recv[%d]:%s\r\n",recv_size, recv_data);
         //printf("recv size: %d , Dest IP : %d.%d.%d.%d Port : %d\r\n",recv_size , destip[0], destip[1], destip[2], destip[3], destport);
@@ -400,8 +440,20 @@ int main(void)
           }
           sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
         }
-        
+        getSn_DHAR(u_sn, d_mac);
+        printf("send get D MAC : %02x:%02x:%02x:%02x:%02x:%02x \r\n", d_mac[0], d_mac[1], d_mac[2], d_mac[3], d_mac[4], d_mac[5]);
       }
+#if 0
+      setSn_IMR(u_sn, 0x04); //->RECV INT,  SENDOK|TIMEOUT|RECV|DISCON|CON|
+      setSn_IR(u_sn, 0x04);
+      temp_ret1 = getSn_IR(u_sn);
+      temp_ret2 = getSn_IMR(u_sn);
+      printf("re. sn : %d IR Reg %02x IMR Reg %02x\r\n",u_sn, temp_ret1, temp_ret2);
+      temp_ret1 = getSn_IR(u_sn);
+      setSn_IR(u_sn, temp_ret1);
+      temp_ret1 = getSn_IR(u_sn);
+      printf("re sn: %d snIR:%02x \r\n", u_sn, temp_ret1);
+#endif
     }
     #if 0
     if((recv_size = getSn_RX_RSR(u_sn)) > 0)

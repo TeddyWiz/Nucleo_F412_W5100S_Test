@@ -555,7 +555,8 @@ int32_t sendto(uint8_t sn, uint8_t * buf, uint16_t len, uint8_t * addr, uint16_t
    setSn_TX_WRSR(sn, len);
 #endif
 //   
-	setSn_CR(sn,Sn_CR_SEND);
+	//setSn_CR(sn,Sn_CR_SEND);
+   setSn_CR(sn,Sn_CR_SEND_MAC);
 	/* wait to process the command... */
 	while(getSn_CR(sn));
    while(1)
